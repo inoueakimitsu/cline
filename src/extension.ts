@@ -20,6 +20,28 @@ https://github.com/microsoft/vscode-webview-ui-toolkit-samples/tree/main/framewo
 
 let outputChannel: vscode.OutputChannel
 
+// API version and type definitions
+const API_VERSION = "1.0"
+
+// Simple type definition
+interface APIResponse<T = undefined> {
+	success: boolean
+	data?: T
+	error?: {
+		code: string
+		message: string
+	}
+}
+
+// Simple helper function
+function sendResponse<T>(res: http.ServerResponse, status: number, response: APIResponse<T>) {
+	res.writeHead(status, { 
+		"Content-Type": "application/json",
+		"x-api-version": API_VERSION
+	})
+	res.end(JSON.stringify(response))
+}
+
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
 export function activate(context: vscode.ExtensionContext) {
@@ -35,52 +57,118 @@ export function activate(context: vscode.ExtensionContext) {
 	// Create HTTP server
 	Logger.log("Starting HTTP server...")
 	const server = http.createServer(async (req, res) => {
-		if (req.method === "POST" && req.url === "/send") {
-			let body = ""
-			req.on("data", (chunk) => {
-				body += chunk
-			})
-			req.on("end", async () => {
-				try {
-					// Check authentication token
-					if (req.headers["x-cli-token"] !== token) {
-						res.writeHead(401)
-						res.end("Unauthorized")
-						return
-					}
+		// Set CORS headers
+		res.setHeader("Access-Control-Allow-Origin", "*")
+		res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		res.setHeader("Access-Control-Allow-Headers", "Content-Type, x-cli-token")
+		res.setHeader("Access-Control-Expose-Headers", "x-api-version")
+		res.setHeader("x-api-version", API_VERSION)
+		
+		// Handle preflight requests
+		if (req.method === "OPTIONS") {
+			res.writeHead(204)
+			res.end()
+			return
+		}
 
-					// Parse received data
-					const { message } = JSON.parse(body)
-
-					// Check if waiting for user response
-					const visibleProvider = ClineProvider.getVisibleInstance()
-					if (!visibleProvider) {
-						res.writeHead(503)
-						res.end("Service Unavailable: No active Cline instance")
-						return
-					}
-
-					const clineMessages = await visibleProvider.getStateToPostToWebview()
-					const lastMessage = clineMessages.clineMessages[clineMessages.clineMessages.length - 1]
-					if (lastMessage?.type === "ask" && !lastMessage.partial) {
-						res.writeHead(403)
-						res.end("Forbidden: Waiting for user response")
-						return
-					}
-
-					// Call custom command to forward message to extension
-					vscode.commands.executeCommand("cline.sendMessageExternal", message)
-
-					res.writeHead(200)
-					res.end("OK")
-				} catch (error) {
-					res.writeHead(400)
-					res.end("Bad Request")
+		// Validate content type for POST requests
+		if (req.method === "POST" && !req.headers["content-type"]?.includes("application/json")) {
+			return sendResponse(res, 415, {
+				success: false,
+				error: {
+					code: "INVALID_CONTENT_TYPE",
+					message: "Content-Type must be application/json"
 				}
 			})
-		} else {
-			res.writeHead(404)
-			res.end()
+		}
+
+		// Validate authentication
+		if (req.headers["x-cli-token"] !== token) {
+			return sendResponse(res, 401, {
+				success: false,
+				error: {
+					code: "UNAUTHORIZED",
+					message: "Invalid or missing authentication token"
+				}
+			})
+		}
+
+		// Route handlers
+		try {
+			if (req.method === "POST" && req.url === "/v1/messages") {
+				let body = ""
+				req.on("data", chunk => body += chunk)
+				
+				await new Promise((resolve, reject) => {
+					req.on("end", resolve)
+					req.on("error", reject)
+				})
+
+				const { message } = JSON.parse(body)
+				if (!message) {
+					return sendResponse(res, 400, {
+						success: false,
+						error: {
+							code: "INVALID_REQUEST",
+							message: "Message field is required"
+						}
+					})
+				}
+
+				const visibleProvider = ClineProvider.getVisibleInstance()
+				if (!visibleProvider) {
+					return sendResponse(res, 503, {
+						success: false,
+						error: {
+							code: "SERVICE_UNAVAILABLE",
+							message: "No active Cline instance available"
+						}
+					})
+				}
+
+				await vscode.commands.executeCommand("cline.sendMessageExternal", message)
+				return sendResponse(res, 200, {
+					success: true,
+					data: { message: "Message sent successfully" }
+				})
+
+			} else if (req.method === "GET" && req.url === "/v1/messages") {
+				const visibleProvider = ClineProvider.getVisibleInstance()
+				if (!visibleProvider) {
+					return sendResponse(res, 503, {
+						success: false,
+						error: {
+							code: "SERVICE_UNAVAILABLE",
+							message: "No active Cline instance available"
+						}
+					})
+				}
+
+				const clineMessages = await visibleProvider.getStateToPostToWebview()
+				return sendResponse(res, 200, {
+					success: true,
+					data: clineMessages
+				})
+
+			} else {
+				return sendResponse(res, 404, {
+					success: false,
+					error: {
+						code: "NOT_FOUND",
+						message: "Requested endpoint not found"
+					}
+				})
+			}
+
+		} catch (error) {
+			Logger.log(`API error: ${error.message}`)
+			return sendResponse(res, 500, {
+				success: false,
+				error: {
+					code: "INTERNAL_SERVER_ERROR",
+					message: "An unexpected error occurred"
+				}
+			})
 		}
 	})
 
