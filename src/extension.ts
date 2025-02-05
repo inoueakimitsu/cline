@@ -148,6 +148,60 @@ export function activate(context: vscode.ExtensionContext) {
 					success: true,
 					data: clineMessages,
 				})
+			} else if (req.method === "POST" && (req.url === "/v1/mode/plan" || req.url === "/v1/mode/act")) {
+				const visibleProvider = ClineProvider.getVisibleInstance()
+				if (!visibleProvider) {
+					return sendResponse(res, 503, {
+						success: false,
+						error: {
+							code: "SERVICE_UNAVAILABLE",
+							message: "No active Cline instance available",
+						},
+					})
+				}
+
+				const mode = req.url === "/v1/mode/plan" ? "plan" : "act"
+				const { chatSettings } = await visibleProvider.getState()
+				await visibleProvider.updateGlobalState("chatSettings", { ...chatSettings, mode })
+				await visibleProvider.postStateToWebview()
+
+				return sendResponse(res, 200, {
+					success: true,
+					data: { mode },
+				})
+			} else if (req.method === "POST" && (req.url === "/v1/buttons/primary" || req.url === "/v1/buttons/secondary")) {
+				const visibleProvider = ClineProvider.getVisibleInstance()
+				if (!visibleProvider) {
+					return sendResponse(res, 503, {
+						success: false,
+						error: {
+							code: "SERVICE_UNAVAILABLE",
+							message: "No active Cline instance available",
+						},
+					})
+				}
+
+				try {
+					const isPrimary = req.url === "/v1/buttons/primary"
+					await visibleProvider.postMessageToWebview({
+						type: "invoke",
+						invoke: isPrimary ? "primaryButtonClick" : "secondaryButtonClick",
+					})
+
+					return sendResponse(res, 200, {
+						success: true,
+						data: { message: `${isPrimary ? "Primary" : "Secondary"} button clicked successfully` },
+					})
+				} catch (error) {
+					Logger.log(`Button click error: ${error.message}`)
+					return sendResponse(res, 500, {
+						success: false,
+						error: {
+							code: "BUTTON_CLICK_ERROR",
+							message: `Failed to click button: ${error.message}`,
+						},
+					})
+				}
 			} else {
 				return sendResponse(res, 404, {
 					success: false,
