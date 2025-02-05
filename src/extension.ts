@@ -34,13 +34,13 @@ export function activate(context: vscode.ExtensionContext) {
 
 	// Create HTTP server
 	Logger.log("Starting HTTP server...")
-	const server = http.createServer((req, res) => {
+	const server = http.createServer(async (req, res) => {
 		if (req.method === "POST" && req.url === "/send") {
 			let body = ""
 			req.on("data", (chunk) => {
 				body += chunk
 			})
-			req.on("end", () => {
+			req.on("end", async () => {
 				try {
 					// Check authentication token
 					if (req.headers["x-cli-token"] !== token) {
@@ -51,6 +51,22 @@ export function activate(context: vscode.ExtensionContext) {
 
 					// Parse received data
 					const { message } = JSON.parse(body)
+
+					// Check if waiting for user response
+					const visibleProvider = ClineProvider.getVisibleInstance()
+					if (!visibleProvider) {
+						res.writeHead(503)
+						res.end("Service Unavailable: No active Cline instance")
+						return
+					}
+
+					const clineMessages = await visibleProvider.getStateToPostToWebview()
+					const lastMessage = clineMessages.clineMessages[clineMessages.clineMessages.length - 1]
+					if (lastMessage?.type === "ask" && !lastMessage.partial) {
+						res.writeHead(403)
+						res.end("Forbidden: Waiting for user response")
+						return
+					}
 
 					// Call custom command to forward message to extension
 					vscode.commands.executeCommand("cline.sendMessageExternal", message)
