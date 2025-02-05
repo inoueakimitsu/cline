@@ -26,6 +26,7 @@ export interface ExtensionMessage {
 		| "vsCodeLmModels"
 		| "requestVsCodeLmModels"
 		| "emailSubscribed"
+		| "externalSend"
 	text?: string
 	action?:
 		| "chatButtonClicked"
@@ -35,6 +36,7 @@ export interface ExtensionMessage {
 		| "didBecomeVisible"
 		| "accountLoginClicked"
 		| "accountLogoutClicked"
+	command?: "externalSend"
 	invoke?: "sendMessage" | "primaryButtonClick" | "secondaryButtonClick"
 	state?: ExtensionState
 	images?: string[]

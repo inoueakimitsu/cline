@@ -2,6 +2,7 @@
 // Import the module and reference it with the alias vscode in your code below
 import delay from "delay"
 import * as vscode from "vscode"
+import * as http from "http"
 import { ClineProvider } from "./core/webview/ClineProvider"
 import { Logger } from "./services/logging/Logger"
 import { createClineAPI } from "./exports"
@@ -23,16 +24,81 @@ let outputChannel: vscode.OutputChannel
 // Your extension is activated the very first time the command is executed
 export function activate(context: vscode.ExtensionContext) {
 	outputChannel = vscode.window.createOutputChannel("Cline")
-	context.subscriptions.push(outputChannel)
-
 	Logger.initialize(outputChannel)
 	Logger.log("Cline extension activated")
+
+	// Create HTTP server
+	Logger.log("Starting HTTP server...")
+	const server = http.createServer((req, res) => {
+		if (req.method === "POST" && req.url === "/send") {
+			let body = ""
+			req.on("data", (chunk) => {
+				body += chunk
+			})
+			req.on("end", () => {
+				try {
+					// Check authentication token
+					if (req.headers["x-cli-token"] !== "MY_SECRET_123") {
+						res.writeHead(401)
+						res.end("Unauthorized")
+						return
+					}
+
+					// Parse received data
+					const { message } = JSON.parse(body)
+
+					// Call custom command to forward message to extension
+					vscode.commands.executeCommand("cline.sendMessageExternal", message)
+
+					res.writeHead(200)
+					res.end("OK")
+				} catch (error) {
+					res.writeHead(400)
+					res.end("Bad Request")
+				}
+			})
+		} else {
+			res.writeHead(404)
+			res.end()
+		}
+	})
+
+	// Start server on localhost port 3000
+	try {
+		server.listen(3000, "127.0.0.1", () => {
+			Logger.log("Cline HTTP server running on http://127.0.0.1:3000")
+			vscode.window.showInformationMessage("Cline HTTP server started on port 3000")
+		})
+
+		server.on("error", (error) => {
+			Logger.log(`HTTP server error: ${error.message}`)
+			vscode.window.showErrorMessage(`Cline HTTP server error: ${error.message}`)
+		})
+	} catch (error) {
+		Logger.log(`Failed to start HTTP server: ${error.message}`)
+		vscode.window.showErrorMessage(`Failed to start Cline HTTP server: ${error.message}`)
+	}
+
+	// Close server when extension is deactivated
+	context.subscriptions.push(new vscode.Disposable(() => server.close()))
+	context.subscriptions.push(outputChannel)
 
 	const sidebarProvider = new ClineProvider(context, outputChannel)
 
 	context.subscriptions.push(
 		vscode.window.registerWebviewViewProvider(ClineProvider.sideBarId, sidebarProvider, {
 			webviewOptions: { retainContextWhenHidden: true },
+		}),
+	)
+
+	// Register command for sending messages from external sources
+	context.subscriptions.push(
+		vscode.commands.registerCommand("cline.sendMessageExternal", (text: string) => {
+			sidebarProvider.postMessageToWebview({
+				type: "externalSend",
+				command: "externalSend",
+				text,
+			})
 		}),
 	)
 

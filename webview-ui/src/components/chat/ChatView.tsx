@@ -414,6 +414,11 @@ const ChatView = ({ isHidden, showAnnouncement, hideAnnouncement, showHistoryVie
 							break
 					}
 					break
+				case "externalSend":
+					if (message.text) {
+						handleSendMessage(message.text, [])
+					}
+					break
 				case "selectedImages":
 					const newImages = message.images ?? []
 					if (newImages.length > 0) {
