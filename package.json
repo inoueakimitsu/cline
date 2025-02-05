@@ -161,6 +161,16 @@
 					"type": "boolean",
 					"default": true,
 					"description": "Enables extension to save checkpoints of workspace throughout the task."
+				},
+				"cline.httpServer.port": {
+					"type": "number",
+					"default": 3000,
+					"description": "Port number for the HTTP server that receives external messages."
+				},
+				"cline.httpServer.token": {
+					"type": "string",
+					"default": "MY_SECRET_123",
+					"description": "Authentication token for the HTTP server (X-CLI-Token header)."
 				}
 			}
 		}

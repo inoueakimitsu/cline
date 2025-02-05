@@ -27,6 +27,11 @@ export function activate(context: vscode.ExtensionContext) {
 	Logger.initialize(outputChannel)
 	Logger.log("Cline extension activated")
 
+	// Get HTTP server settings from configuration
+	const config = vscode.workspace.getConfiguration("cline.httpServer")
+	const port = config.get<number>("port") || 3000
+	const token = config.get<string>("token") || "MY_SECRET_123"
+
 	// Create HTTP server
 	Logger.log("Starting HTTP server...")
 	const server = http.createServer((req, res) => {
@@ -38,7 +43,7 @@ export function activate(context: vscode.ExtensionContext) {
 			req.on("end", () => {
 				try {
 					// Check authentication token
-					if (req.headers["x-cli-token"] !== "MY_SECRET_123") {
+					if (req.headers["x-cli-token"] !== token) {
 						res.writeHead(401)
 						res.end("Unauthorized")
 						return
@@ -63,11 +68,11 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 	})
 
-	// Start server on localhost port 3000
+	// Start server on configured port
 	try {
-		server.listen(3000, "127.0.0.1", () => {
-			Logger.log("Cline HTTP server running on http://127.0.0.1:3000")
-			vscode.window.showInformationMessage("Cline HTTP server started on port 3000")
+		server.listen(port, "127.0.0.1", () => {
+			Logger.log(`Cline HTTP server running on http://127.0.0.1:${port}`)
+			vscode.window.showInformationMessage(`Cline HTTP server started on port ${port}`)
 		})
 
 		server.on("error", (error) => {
