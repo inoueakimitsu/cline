@@ -35,9 +35,9 @@ interface APIResponse<T = undefined> {
 
 // Simple helper function
 function sendResponse<T>(res: http.ServerResponse, status: number, response: APIResponse<T>) {
-	res.writeHead(status, { 
+	res.writeHead(status, {
 		"Content-Type": "application/json",
-		"x-api-version": API_VERSION
+		"x-api-version": API_VERSION,
 	})
 	res.end(JSON.stringify(response))
 }
@@ -63,7 +63,7 @@ export function activate(context: vscode.ExtensionContext) {
 		res.setHeader("Access-Control-Allow-Headers", "Content-Type, x-cli-token")
 		res.setHeader("Access-Control-Expose-Headers", "x-api-version")
 		res.setHeader("x-api-version", API_VERSION)
-		
+
 		// Handle preflight requests
 		if (req.method === "OPTIONS") {
 			res.writeHead(204)
@@ -77,8 +77,8 @@ export function activate(context: vscode.ExtensionContext) {
 				success: false,
 				error: {
 					code: "INVALID_CONTENT_TYPE",
-					message: "Content-Type must be application/json"
-				}
+					message: "Content-Type must be application/json",
+				},
 			})
 		}
 
@@ -88,8 +88,8 @@ export function activate(context: vscode.ExtensionContext) {
 				success: false,
 				error: {
 					code: "UNAUTHORIZED",
-					message: "Invalid or missing authentication token"
-				}
+					message: "Invalid or missing authentication token",
+				},
 			})
 		}
 
@@ -97,8 +97,8 @@ export function activate(context: vscode.ExtensionContext) {
 		try {
 			if (req.method === "POST" && req.url === "/v1/messages") {
 				let body = ""
-				req.on("data", chunk => body += chunk)
-				
+				req.on("data", (chunk) => (body += chunk))
+
 				await new Promise((resolve, reject) => {
 					req.on("end", resolve)
 					req.on("error", reject)
@@ -110,8 +110,8 @@ export function activate(context: vscode.ExtensionContext) {
 						success: false,
 						error: {
 							code: "INVALID_REQUEST",
-							message: "Message field is required"
-						}
+							message: "Message field is required",
+						},
 					})
 				}
 
@@ -121,17 +121,16 @@ export function activate(context: vscode.ExtensionContext) {
 						success: false,
 						error: {
 							code: "SERVICE_UNAVAILABLE",
-							message: "No active Cline instance available"
-						}
+							message: "No active Cline instance available",
+						},
 					})
 				}
 
 				await vscode.commands.executeCommand("cline.sendMessageExternal", message)
 				return sendResponse(res, 200, {
 					success: true,
-					data: { message: "Message sent successfully" }
+					data: { message: "Message sent successfully" },
 				})
-
 			} else if (req.method === "GET" && req.url === "/v1/messages") {
 				const visibleProvider = ClineProvider.getVisibleInstance()
 				if (!visibleProvider) {
@@ -139,35 +138,33 @@ export function activate(context: vscode.ExtensionContext) {
 						success: false,
 						error: {
 							code: "SERVICE_UNAVAILABLE",
-							message: "No active Cline instance available"
-						}
+							message: "No active Cline instance available",
+						},
 					})
 				}
 
 				const clineMessages = await visibleProvider.getStateToPostToWebview()
 				return sendResponse(res, 200, {
 					success: true,
-					data: clineMessages
+					data: clineMessages,
 				})
-
 			} else {
 				return sendResponse(res, 404, {
 					success: false,
 					error: {
 						code: "NOT_FOUND",
-						message: "Requested endpoint not found"
-					}
+						message: "Requested endpoint not found",
+					},
 				})
 			}
-
 		} catch (error) {
 			Logger.log(`API error: ${error.message}`)
 			return sendResponse(res, 500, {
 				success: false,
 				error: {
 					code: "INTERNAL_SERVER_ERROR",
-					message: "An unexpected error occurred"
-				}
+					message: "An unexpected error occurred",
+				},
 			})
 		}
 	})
