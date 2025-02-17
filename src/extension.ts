@@ -53,19 +53,24 @@ export function activate(context: vscode.ExtensionContext) {
 	const config = vscode.workspace.getConfiguration("cline.httpServer")
 	const port = config.get<number>("port") || 3000
 	const token = config.get<string>("token") || "MY_SECRET_123"
+	Logger.log(`HTTP server configuration loaded - port: ${port}`)
 
 	// Create HTTP server
 	Logger.log("Starting HTTP server...")
 	const server = http.createServer(async (req, res) => {
+		Logger.log(`Incoming ${req.method} request to ${req.url}`)
+
 		// Set CORS headers
 		res.setHeader("Access-Control-Allow-Origin", "*")
 		res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 		res.setHeader("Access-Control-Allow-Headers", "Content-Type, x-cli-token")
 		res.setHeader("Access-Control-Expose-Headers", "x-api-version")
 		res.setHeader("x-api-version", API_VERSION)
+		Logger.log("CORS headers set")
 
 		// Handle preflight requests
 		if (req.method === "OPTIONS") {
+			Logger.log("Handling OPTIONS preflight request")
 			res.writeHead(204)
 			res.end()
 			return
@@ -73,6 +78,7 @@ export function activate(context: vscode.ExtensionContext) {
 
 		// Validate content type for POST requests
 		if (req.method === "POST" && !req.headers["content-type"]?.includes("application/json")) {
+			Logger.log(`Invalid content type: ${req.headers["content-type"]}`)
 			return sendResponse(res, 415, {
 				success: false,
 				error: {
@@ -84,6 +90,7 @@ export function activate(context: vscode.ExtensionContext) {
 
 		// Validate authentication
 		if (req.headers["x-cli-token"] !== token) {
+			Logger.log("Authentication failed - invalid or missing token")
 			return sendResponse(res, 401, {
 				success: false,
 				error: {
@@ -92,10 +99,12 @@ export function activate(context: vscode.ExtensionContext) {
 				},
 			})
 		}
+		Logger.log("Authentication successful")
 
 		// Route handlers
 		try {
 			if (req.method === "POST" && req.url === "/v1/messages") {
+				Logger.log("Handling POST /v1/messages request")
 				let body = ""
 				req.on("data", (chunk) => (body += chunk))
 
@@ -103,9 +112,11 @@ export function activate(context: vscode.ExtensionContext) {
 					req.on("end", resolve)
 					req.on("error", reject)
 				})
+				Logger.log("Request body received")
 
 				const { message } = JSON.parse(body)
 				if (!message) {
+					Logger.log("Missing required message field")
 					return sendResponse(res, 400, {
 						success: false,
 						error: {
@@ -117,6 +128,7 @@ export function activate(context: vscode.ExtensionContext) {
 
 				const visibleProvider = ClineProvider.getVisibleInstance()
 				if (!visibleProvider) {
+					Logger.log("No active Cline instance found")
 					return sendResponse(res, 503, {
 						success: false,
 						error: {
@@ -125,15 +137,30 @@ export function activate(context: vscode.ExtensionContext) {
 						},
 					})
 				}
+				Logger.log("Found active Cline instance")
 
-				await vscode.commands.executeCommand("cline.sendMessageExternal", message)
-				return sendResponse(res, 200, {
-					success: true,
-					data: { message: "Message sent successfully" },
-				})
+				try {
+					await vscode.commands.executeCommand("cline.sendMessageExternal", message)
+					Logger.log("Message sent successfully")
+					return sendResponse(res, 200, {
+						success: true,
+						data: { message: "Message sent successfully" },
+					})
+				} catch (error) {
+					Logger.log(`Failed to send message: ${error.message}`)
+					return sendResponse(res, 500, {
+						success: false,
+						error: {
+							code: "COMMAND_EXECUTION_ERROR",
+							message: `Failed to execute command: ${error.message}`,
+						},
+					})
+				}
 			} else if (req.method === "GET" && req.url === "/v1/messages") {
+				Logger.log("Handling GET /v1/messages request")
 				const visibleProvider = ClineProvider.getVisibleInstance()
 				if (!visibleProvider) {
+					Logger.log("No active Cline instance found")
 					return sendResponse(res, 503, {
 						success: false,
 						error: {
@@ -142,6 +169,7 @@ export function activate(context: vscode.ExtensionContext) {
 						},
 					})
 				}
+				Logger.log("Found active Cline instance")
 
 				const clineMessages = await visibleProvider.getStateToPostToWebview()
 				return sendResponse(res, 200, {
@@ -149,8 +177,10 @@ export function activate(context: vscode.ExtensionContext) {
 					data: clineMessages,
 				})
 			} else if (req.method === "POST" && (req.url === "/v1/mode/plan" || req.url === "/v1/mode/act")) {
+				Logger.log(`Handling mode change request to ${req.url}`)
 				const visibleProvider = ClineProvider.getVisibleInstance()
 				if (!visibleProvider) {
+					Logger.log("No active Cline instance found")
 					return sendResponse(res, 503, {
 						success: false,
 						error: {
@@ -159,19 +189,23 @@ export function activate(context: vscode.ExtensionContext) {
 						},
 					})
 				}
+				Logger.log("Found active Cline instance")
 
 				const mode = req.url === "/v1/mode/plan" ? "plan" : "act"
 				const { chatSettings } = await visibleProvider.getState()
 				await visibleProvider.updateGlobalState("chatSettings", { ...chatSettings, mode })
 				await visibleProvider.postStateToWebview()
+				Logger.log(`Mode successfully changed to ${mode}`)
 
 				return sendResponse(res, 200, {
 					success: true,
 					data: { mode },
 				})
 			} else if (req.method === "POST" && (req.url === "/v1/buttons/primary" || req.url === "/v1/buttons/secondary")) {
+				Logger.log(`Handling button click request for ${req.url}`)
 				const visibleProvider = ClineProvider.getVisibleInstance()
 				if (!visibleProvider) {
+					Logger.log("No active Cline instance found")
 					return sendResponse(res, 503, {
 						success: false,
 						error: {
@@ -180,6 +214,7 @@ export function activate(context: vscode.ExtensionContext) {
 						},
 					})
 				}
+				Logger.log("Found active Cline instance")
 
 				try {
 					const isPrimary = req.url === "/v1/buttons/primary"
@@ -187,6 +222,7 @@ export function activate(context: vscode.ExtensionContext) {
 						type: "invoke",
 						invoke: isPrimary ? "primaryButtonClick" : "secondaryButtonClick",
 					})
+					Logger.log(`${isPrimary ? "Primary" : "Secondary"} button click processed`)
 
 					return sendResponse(res, 200, {
 						success: true,
@@ -203,6 +239,7 @@ export function activate(context: vscode.ExtensionContext) {
 					})
 				}
 			} else {
+				Logger.log(`Endpoint not found: ${req.method} ${req.url}`)
 				return sendResponse(res, 404, {
 					success: false,
 					error: {
@@ -240,16 +277,23 @@ export function activate(context: vscode.ExtensionContext) {
 	}
 
 	// Close server when extension is deactivated
-	context.subscriptions.push(new vscode.Disposable(() => server.close()))
+	context.subscriptions.push(
+		new vscode.Disposable(() => {
+			Logger.log("Closing HTTP server...")
+			server.close()
+		}),
+	)
 	context.subscriptions.push(outputChannel)
 
 	const sidebarProvider = new ClineProvider(context, outputChannel)
+	Logger.log("Created sidebar provider")
 
 	context.subscriptions.push(
 		vscode.window.registerWebviewViewProvider(ClineProvider.sideBarId, sidebarProvider, {
 			webviewOptions: { retainContextWhenHidden: true },
 		}),
 	)
+	Logger.log("Registered webview view provider")
 
 	// Register command for sending messages from external sources
 	context.subscriptions.push(
